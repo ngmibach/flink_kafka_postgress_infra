@@ -1,0 +1,13 @@
+mirrors:
+  # "*":
+  #   endpoint:
+  #     - "http://172.17.0.1:5000"
+
+  registry.internal.local:
+    endpoint:
+      - "http://172.17.0.1:5000"
+
+configs:
+  ecr-public.aws.com:
+    tls:
+      insecure_skip_verify: true

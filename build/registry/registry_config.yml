@@ -1,0 +1,12 @@
+version: 0.1
+storage:
+  delete:
+    enabled: true
+  cache:
+    blobdecriptor: inmemory
+  filesystem:
+    rootdirectory: /var/lib/registry
+http:
+  addr: :5000
+  headers:
+    Access-Control-Allow-Origin: ["*"]

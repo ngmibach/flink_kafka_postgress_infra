@@ -1,0 +1,26 @@
+services:
+  cntlm:
+    build:
+      context: build/cntlm
+    restart: always
+    ports:
+      - 3128:3128
+    volumes:
+      - /etc/cntlm.conf:/etc/cntlm.conf
+      - ./resolv.conf:/etc/resolv.conf
+    command: cntlm -f
+    healthcheck:
+      test: [CMD-SHELL, nc -z localhost 3128]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      cntlm_net:
+        ipv4_address: 172.19.0.8
+
+networks:
+  cntlm_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.19.0.0/16

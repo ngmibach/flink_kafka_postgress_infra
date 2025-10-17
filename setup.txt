@@ -1,0 +1,116 @@
+First run bash full_up.sh.
+Then wait until every containers run.
+Then you have to pull these two docker images from Bosch down:
++ radium-pt-ac-smartqm-docker-release-local.rb-artifactory.bosch.com/flink/flink-deployments:flink-kubernetes-operator
++ radium-pt-ac-smartqm-docker-release-local.rb-artifactory.bosch.com/flink/flink-deployments:flink-main-container-v119-aws
+Then move the /argocd_central/docker_build/ and docker compose build and docker compose push the image.
+Later run this command otherwise flink-kubernetes-operator cannot run
++ kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.19.1/cert-manager.yaml
+If after installing the cert-manager but the flink-kubernetes-operator isn't installed, run this cmd:
++ helm repo add flink-operator-repo https://downloads.apache.org/flink/flink-kubernetes-operator-1.13.0/
++ helm repo update
++ helm install flink-kubernetes-operator flink-operator-repo/flink-kubernetes-operator -n workspace
+To run Kafka and PostgresDB
+1. cd Kafka and docker compose up -d
+2. Then attach terminal into the Postgres container
+3. And execute the following command 
++ psql -U test -d smart_monitoring_db
++ 
+-- Create schema
+CREATE SCHEMA sm_00002_vku_sinter;
+GRANT USAGE ON SCHEMA sm_00002_vku_sinter TO test;
+
+-- Create monitoring_spec table
+CREATE TABLE IF NOT EXISTS sm_00002_vku_sinter.monitoring_spec
+(
+    spec_uuid uuid NOT NULL,
+    process_id text,
+    use_case_name text,
+    spec_name text,
+    device_id text,
+    station_ref text,
+    clamping_ref text,
+    phase_ref text,
+    spec_schema text,
+    spec_json jsonb,
+    updated_at timestamp with time zone DEFAULT now(),
+    updated_by text,
+    xlsx_file bytea,
+    CONSTRAINT metadata_version_pkey PRIMARY KEY (spec_uuid)
+);
+
+GRANT ALL ON TABLE sm_00002_vku_sinter.monitoring_spec TO test;
+
+-- Create scalar_measurements hypertable
+CREATE TABLE IF NOT EXISTS sm_00002_vku_sinter.scalar_measurements
+(
+    batch_ref text COLLATE pg_catalog."default",
+    order_id text COLLATE pg_catalog."default",
+    material_id text COLLATE pg_catalog."default",
+    program_ref text COLLATE pg_catalog."default",
+    device_id text COLLATE pg_catalog."default",
+    station_ref text COLLATE pg_catalog."default",
+    clamping_ref text COLLATE pg_catalog."default",
+    process_id text COLLATE pg_catalog."default",
+    recorded_at timestamp with time zone NOT NULL,
+    measurement_id uuid NOT NULL,
+    metric_name text COLLATE pg_catalog."default",
+    unit text COLLATE pg_catalog."default",
+    metric_value numeric,
+    metric_string_value text COLLATE pg_catalog."default",
+    applied_detector text COLLATE pg_catalog."default",
+    assigned_detector_result text COLLATE pg_catalog."default",
+    usecase_id text COLLATE pg_catalog."default",
+    phase_ref text COLLATE pg_catalog."default"
+);
+
+GRANT ALL ON TABLE sm_00002_vku_sinter.scalar_measurements TO test;
+
+-- Create series_measurements hypertable
+CREATE TABLE IF NOT EXISTS sm_00002_vku_sinter.series_measurements
+(
+    recorded_at timestamp with time zone NOT NULL,
+    device_id text COLLATE pg_catalog."default",
+    material_id text COLLATE pg_catalog."default",
+    order_id text COLLATE pg_catalog."default",
+    program_ref text COLLATE pg_catalog."default",
+    batch_ref text COLLATE pg_catalog."default",
+    phase_ref text COLLATE pg_catalog."default",
+    station_ref text COLLATE pg_catalog."default",
+    clamping_ref text COLLATE pg_catalog."default",
+    metric_name text COLLATE pg_catalog."default",
+    json_values jsonb,
+    process_id text COLLATE pg_catalog."default",
+    measurement_id uuid,
+    usecase_id text COLLATE pg_catalog."default",
+    additional_phase_ref text COLLATE pg_catalog."default",
+    applied_detector text COLLATE pg_catalog."default",
+    assigned_detector_result text COLLATE pg_catalog."default"
+);
+
+GRANT ALL ON TABLE sm_00002_vku_sinter.series_measurements TO test;
+
+-- Create indexes
+CREATE INDEX IF NOT EXISTS scalar_measurements_recorded_at_idx
+    ON sm_00002_vku_sinter.scalar_measurements USING btree
+    (recorded_at DESC NULLS FIRST);
+
+CREATE INDEX IF NOT EXISTS series_measurements_recorded_at_idx
+    ON sm_00002_vku_sinter.series_measurements USING btree
+    (recorded_at DESC NULLS FIRST);
+
+-- Convert tables to hypertables
+SELECT create_hypertable('sm_00002_vku_sinter.scalar_measurements', by_range('recorded_at', INTERVAL '1 day'));
+SELECT create_hypertable('sm_00002_vku_sinter.series_measurements', by_range('recorded_at', INTERVAL '1 day'));
+
++ To verify the monitoring_spec table run this cmd
+SELECT * FROM sm_00002_vku_sinter.monitoring_spec;
+
++ and the result should look like this 
+ spec_uuid | process_id | use_case_name | spec_name | device_id | station_ref | clamping_ref | phase_ref | spec_schema | spec_json | updated_at | updated_by | xlsx_file
+-----------+------------+---------------+-----------+-----------+-------------+--------------+-----------+-------------+-----------+------------+------------+-----------
+(0 rows)
+
+4. To view kafka content
+docker exec -it kafka /usr/bin/kafka-topics --bootstrap-server localhost:9092 --list
+docker exec -it kafka /usr/bin/kafka-console-consumer --bootstrap-server localhost:9092 --topic flink-source --from-beginning true
