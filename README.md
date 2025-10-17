@@ -27,7 +27,7 @@ For a streamlined setup, execute:
 bash full_up.sh
 ```
 
-Allow 5–10 minutes for all components to initialize and deploy. Then, open another terminal and execute k9s to view the Kubernetes cluster. To access the ArgoCD server, navigate to the corresponding pod in k9s and press Shift + F to forward the port.
+Allow 5–10 minutes for all components to initialize and deploy. Then, open another terminal and execute k9s to view the Kubernetes cluster. To access the ArgoCD server, navigate to the corresponding pod in k9s and press Shift + F to forward the port. 
 
 Retrieve the ArgoCD admin password:
 ```bash
@@ -204,7 +204,7 @@ To inspect Kafka topics and data:
    ```
 2. View data from the `flink-source` topic:
    ```bash
-   docker exec -it kafka /usr/bin/kafka-console-consumer --bootstrap-server localhost:9092 --topic flink-source --from-beginning
+   docker exec -it kafka /usr/bin/kafka-console-consumer --bootstrap-server localhost:9092 --topic flink-source --from-beginning true
    ```
 
 ## 4. Setting Up the Data Feeder
