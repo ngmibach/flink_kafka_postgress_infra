@@ -21,24 +21,6 @@ This guide provides instructions for setting up a Kubernetes environment with Ar
    ```
    This script builds a custom image and initializes the Git repository for ArgoCD.
 
-### Accessing ArgoCD
-1. Retrieve the ArgoCD admin password:
-   ```bash
-   kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
-   ```
-2. Access the following services in your browser:
-   - **ArgoCD**: `https://localhost:30001`
-   - **KubeOpsView**: `http://localhost:30002`
-   - **App Example**: `http://localhost:30000`
-
-### Rebuilding the Example Application
-To rebuild the `appexample` application with a new timestamp-based image:
-1. Navigate to the `app-example` directory.
-2. Run:
-   ```bash
-   bash build-image.sh 
-   ```
-
 ### Quick Setup
 For a streamlined setup, execute:
 ```bash
@@ -46,6 +28,11 @@ bash full_up.sh
 ```
 
 Allow 5–10 minutes for all components to initialize and deploy. Then, open another terminal and execute k9s to view the Kubernetes cluster. To access the ArgoCD server, navigate to the corresponding pod in k9s and press Shift + F to forward the port.
+
+Retrieve the ArgoCD admin password:
+```bash
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+```
 
 ## 2. Setting Up Flink Kubernetes Operator
 
