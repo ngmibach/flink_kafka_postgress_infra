@@ -196,6 +196,15 @@ The Flink Kubernetes Operator requires images from the Bosch Artifactory. Follow
    (0 rows)
    ```
 
+5. To view data in PostgresDB:
+   ```sql
+   SELECT recorded_at, metric_name, json_values 
+   FROM sm_00002_vku_sinter.series_measurements 
+   WHERE device_id = '10031033' 
+   AND recorded_at >= NOW() - INTERVAL '1 week' 
+   ORDER BY recorded_at DESC;
+   ```
+
 ### Viewing Kafka Data
 To inspect Kafka topics and data:
 1. List available topics:
