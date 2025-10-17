@@ -15,9 +15,9 @@ This guide provides instructions for setting up a Kubernetes environment with Ar
    ```bash
    docker compose up -d
    ```
-2. Once the services are up, navigate to the `argocd_central` directory and execute:
+2. Once the services are up, navigate to the `flink_postgres_kafka_infra/argocd_central` directory and execute:         
    ```bash
-   bash init.sh
+   bash init.sh 
    ```
    This script builds a custom image and initializes the Git repository for ArgoCD.
 
@@ -40,7 +40,7 @@ The Flink Kubernetes Operator requires images from the Bosch Artifactory. Follow
 
 1. Log in to the Bosch Artifactory:
    ```bash
-   docker login radium-pt-ac-smartqm-docker-release-local.rb-artifactory.bosch.com -u <your-id> -p <your-password>
+   docker login radium-pt-ac-smartqm-docker-release-local.rb-artifactory.bosch.com -u <your-id> -p <your-password> 
    ```
 2. Pull the required images:
    ```bash
