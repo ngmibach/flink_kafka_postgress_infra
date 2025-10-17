@@ -1,0 +1,9 @@
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: auto-retry
+  namespace: workspace
+spec:
+  retry:
+    attempts: 5
+    initialInterval: 100ms

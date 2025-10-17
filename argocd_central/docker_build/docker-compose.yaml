@@ -1,0 +1,34 @@
+services:
+  helm_manager:
+    image: localhost:5000/tools/helm_manager:latest
+    build:
+      context: build/helm_manager
+
+  debug_node:
+    image: localhost:5000/tools/debug-node:latest
+    build:
+      context: build/debug_node
+
+  flink-deploy:
+    image: localhost:5000/flink/flink-deployments:flink-main-container-v119-aws
+    build:
+      context: build/flink_deploy
+
+  flink-operator:
+    image: localhost:5000/flink/flink-deployments:flink-kubernetes-operator
+    build: 
+      context: build/flink_operator
+
+  flink-deploy-custom:
+    image: localhost:5000/flink/flink-deployments:flink-main-container-custom
+    build:
+      context: build/flink_deploy_custom
+      dockerfile: Dockerfile
+
+  flink-deploy-producer:
+    image: localhost:5000/flink/flink-deployments:flink-main-container-producer
+    build: 
+      context: build/flink_deploy_custom
+      dockerfile: Dockerfile.producer
+    environment:
+      - PYTHONUNBUFFERED=1

@@ -1,0 +1,62 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: node-debug
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: node-debug-cluster-admin
+subjects:
+- kind: ServiceAccount
+  name: node-debug
+  namespace: kube-system
+roleRef:
+  kind: ClusterRole
+  name: cluster-admin
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-debug
+  namespace: kube-system
+  labels:
+    app: node-debug
+spec:
+  selector:
+    matchLabels:
+      app: node-debug
+  template:
+    metadata:
+      labels:
+        app: node-debug
+    spec:
+      serviceAccountName: node-debug
+      hostPID: true
+      hostNetwork: true
+      containers:
+      - name: debug
+        image: registry.internal.local/tools/debug-node:latest
+        command: ["/bin/bash", "-c", "sleep infinity"]
+        env:
+        - name: LANG
+          value: en_US.UTF-8
+        - name: LC_ALL
+          value: en_US.UTF-8
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: host-root
+          mountPath: /hostdir
+        resources:
+          requests:
+            memory: "100Mi"
+      volumes:
+      - name: host-root
+        hostPath:
+          path: /
+          type: Directory
+      tolerations:
+      - operator: Exists

@@ -1,0 +1,22 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: taskmanager-hpa
+  namespace: workspace
+spec:
+  scaleTargetRef:
+    apiVersion: flink.apache.org/v1beta1
+    kind: FlinkDeployment
+    name: reactive-dev
+  minReplicas: 1        
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: memory                 
+        target:
+          type: Utilization
+          averageUtilization: 90
+  # selector:
+  #   matchLabels:
+  #     component: taskmanager   # This targets only TaskManager pods

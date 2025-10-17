@@ -1,0 +1,1 @@
+FROM radium-pt-ac-smartqm-docker-release-local.rb-artifactory.bosch.com/flink/flink-deployments:flink-main-container-v119-aws

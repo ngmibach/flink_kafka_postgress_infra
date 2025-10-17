@@ -1,0 +1,27 @@
+# apiVersion: apps/v1
+# kind: Deployment
+# metadata:
+#   name: kafka-producer
+#   namespace: workspace
+# spec:
+#   replicas: 1
+#   selector:
+#     matchLabels:
+#       app: kafka-producer
+#   template:
+#     metadata:
+#       labels:
+#         app: kafka-producer
+#     spec:
+#       hostAliases:
+#       - ip: "172.17.0.1"
+#         hostnames:
+#         - "kafka"
+#         - "postgres"
+#       containers:
+#       - name: kafka-producer
+#         image: "registry.internal.local/flink/flink-deployments:flink-main-container-producer"
+#         imagePullPolicy: Always
+#         env:
+#         - name: PYTHONUNBUFFERED
+#           value: "1"

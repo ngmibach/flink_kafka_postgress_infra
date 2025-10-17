@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: savepoint-volume
+  namespace: workspace
+spec:
+  capacity:
+    storage: 10Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: "local-path"
+  hostPath:
+    path: "/mnt/local-data"
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: shared-flink-volume
+  namespace: workspace
+spec:
+  capacity:
+    storage: 10Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: "local-path"
+  hostPath:
+    path: "/mnt/local-data"
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: checkpoint-volume
+  namespace: workspace
+spec:
+  capacity:
+    storage: 10Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: "local-path"
+  hostPath:
+    path: "/mnt/local-data"

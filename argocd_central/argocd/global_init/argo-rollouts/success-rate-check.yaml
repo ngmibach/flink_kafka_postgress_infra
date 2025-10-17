@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: success-rate-check
+  namespace: workspace
+spec:
+  args:
+    - name: rollout-name
+    - name: base-path
+  metrics:
+    - name: app-health
+      interval: 30s
+      count: 3
+      successCondition: result == "ok"
+      failureLimit: 1
+      provider:
+        web:
+          url: http://{{args.rollout-name}}.workspace.svc.cluster.local{{args.base-path}}/healthz
+          timeoutSeconds: 5
+          jsonPath: "{$.status}"

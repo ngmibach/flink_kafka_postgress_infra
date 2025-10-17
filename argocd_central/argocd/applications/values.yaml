@@ -1,0 +1,44 @@
+cluster:
+  project: example-project
+
+apps:
+  example-app:
+    enabled: true
+    repoURL: http://172.17.0.1:3000/git/argocd_central.git
+    targetRevision: master
+    chartPath: k8s/app-charts
+    valuePath: app-values/example
+    namespace: workspace
+    annotations:
+      argocd-image-updater.argoproj.io/image-list: "example=registry.internal.local/apps/app-example:latest"
+      argocd-image-updater.argoproj.io/example.update-strategy: digest
+      argocd-image-updater.argoproj.io/example.force-update: "true"
+      argocd-image-updater.argoproj.io/example.helm.image.repository: image.repository
+      argocd-image-updater.argoproj.io/example.helm.image.tag: image.tag
+
+  ollama:
+    enabled: false
+    repoURL: http://172.17.0.1:3000/git/argocd_central.git
+    targetRevision: master
+    chartPath: k8s/local-ai
+    valuePath: .
+    namespace: workspace
+    annotations:
+      argocd-image-updater.argoproj.io/image-list: "ollama=ollama/ollama:latest"
+      argocd-image-updater.argoproj.io/ollama.update-strategy: digest
+      argocd-image-updater.argoproj.io/ollama.force-update: "true"
+      argocd-image-updater.argoproj.io/ollama.helm.image.repository: image.repository
+      argocd-image-updater.argoproj.io/ollama.helm.image.tag: image.tag
+
+  example-flink-infra:
+    enabled: true
+    repoURL: http://172.17.0.1:3000/git/argocd_central.git
+    targetRevision: master
+    chartPath: k8s/Flink_Infrastructure-application-mode-dev-manifest
+    valuePath: .
+    namespace: workspace
+    annotations:
+      argocd-image-updater.argoproj.io/example.update-strategy: digest
+      argocd-image-updater.argoproj.io/example.force-update: "true"
+      argocd-image-updater.argoproj.io/example.helm.image.repository: image.repository
+      argocd-image-updater.argoproj.io/example.helm.image.tag: image.tag

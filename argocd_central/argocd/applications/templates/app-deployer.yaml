@@ -1,0 +1,39 @@
+{{- $cluster := .Values.cluster }}
+{{- range $name, $app := .Values.apps }}
+{{- if $app.enabled }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ $name }}
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: {{ $name }}
+    app.kubernetes.io/instance: {{ $name }}
+    cluster: {{ $cluster.project | quote }}
+  {{- if $app.annotations }}
+  annotations:
+{{ toYaml $app.annotations | nindent 4 }}
+  {{- end }}
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: {{ $cluster.project | quote }}
+  source:
+    repoURL: {{ $app.repoURL | quote }}
+    targetRevision: {{ $app.targetRevision | quote }}
+    path: {{ $app.chartPath | quote }}
+    helm:
+      valueFiles:
+        - "{{ $app.valuePath }}/values.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $app.namespace | quote }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+{{- end }}
+{{- end }}

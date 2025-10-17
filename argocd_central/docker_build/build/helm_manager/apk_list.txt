@@ -1,0 +1,4 @@
+kubectl
+helm
+bash
+jq
