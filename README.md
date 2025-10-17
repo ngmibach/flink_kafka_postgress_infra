@@ -49,6 +49,8 @@ For a streamlined setup, execute:
 bash full_up.sh
 ```
 
+Then wait for 5-10 mins for everything to set up.
+
 ## 2. Setting Up Flink Kubernetes Operator
 
 The Flink Kubernetes Operator requires images from the Bosch Artifactory. Follow these steps:
