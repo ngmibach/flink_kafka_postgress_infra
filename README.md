@@ -40,7 +40,7 @@ The Flink Kubernetes Operator requires images from the Bosch Artifactory. Follow
 
 1. Log in to the Bosch Artifactory:
    ```bash
-   docker login radium-pt-ac-smartqm-docker-release-local.rb-artifactory.bosch.com
+   docker login radium-pt-ac-smartqm-docker-release-local.rb-artifactory.bosch.com -u <your-id> -p <your-password>
    ```
 2. Pull the required images:
    ```bash
@@ -69,7 +69,7 @@ The Flink Kubernetes Operator requires images from the Bosch Artifactory. Follow
        - PYTHONUNBUFFERED=1
    ```
 
-4. Install the cert-manager for Flink:
+4. Install the cert-manager for Flink-kubernetes-operator:
    ```bash
    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.19.1/cert-manager.yaml
    ```
