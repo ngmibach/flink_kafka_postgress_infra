@@ -40,7 +40,7 @@ To rebuild the `appexample` application with a new timestamp-based image:
 1. Navigate to the `app-example` directory.
 2. Run:
    ```bash
-   bash build-image.sh
+   bash build-image.sh 
    ```
 
 ### Quick Setup
