@@ -2,15 +2,11 @@
 
 # Setup Guide for Kubernetes, ArgoCD, Flink, Kafka, and PostgresDB
 
-This guide provides instructions for setting up a Kubernetes environment with ArgoCD, Flink Kubernetes Operator, Kafka, PostgresDB, and a data feeder. Ensure you have Docker, `kubectl`, `helm`, and a local Kubernetes cluster (e.g., Docker Desktop, Minikube) installed before proceeding. **Note:** If you have ArgoCD, k9s, a local registry, Kafka, or PostgresDB running, please shut them down to avoid conflicts.
+This guide provides instructions for setting up a Kubernetes environment with ArgoCD, Flink Kubernetes Operator, Kafka, PostgresDB, and a data feeder. Ensure you have Docker installed before proceeding. **Note:** If you have ArgoCD, k9s, a local registry, Kafka, or PostgresDB running, please shut them down to avoid conflicts.
 
 ## Prerequisites
 - Docker and Docker Compose
-- `kubectl` and `helm` CLI tools
-- Access to a Kubernetes cluster
-- Access to the Bosch Artifactory for Flink images (requires credentials)
-- Git for repository initialization
-- Basic knowledge of Kubernetes, ArgoCD, and Helm
+- Access right to the Bosch Artifactory for Flink images (requires credentials)
 
 ## 1. Setting Up Kubernetes and ArgoCD
 
@@ -49,7 +45,7 @@ For a streamlined setup, execute:
 bash full_up.sh
 ```
 
-Then wait for 5-10 mins for everything to set up.
+Allow 5–10 minutes for all components to initialize and deploy. Then, open another terminal and execute k9s to view the Kubernetes cluster. To access the ArgoCD server, navigate to the corresponding pod in k9s and press Shift + F to forward the port.
 
 ## 2. Setting Up Flink Kubernetes Operator
 
