@@ -97,102 +97,112 @@ The Flink Kubernetes Operator requires images from the Bosch Artifactory. Follow
 3. Execute the following SQL commands to create the schema and tables:
 
    ```sql
-   -- Create schema
+   -- Create sm_00002_vku_sinter schema
    CREATE SCHEMA sm_00002_vku_sinter;
    GRANT USAGE ON SCHEMA sm_00002_vku_sinter TO test;
 
-   -- Create monitoring_spec table
-   CREATE TABLE IF NOT EXISTS sm_00002_vku_sinter.monitoring_spec
-   (
-       spec_uuid uuid NOT NULL,
-       process_id text,
-       use_case_name text,
-       spec_name text,
-       device_id text,
-       station_ref text,
-       clamping_ref text,
-       phase_ref text,
-       spec_schema text,
-       spec_json jsonb,
-       updated_at timestamp with time zone DEFAULT now(),
-       updated_by text,
-       xlsx_file bytea,
-       CONSTRAINT metadata_version_pkey PRIMARY KEY (spec_uuid)
+   -- Create sm_base schema for error_log
+   CREATE SCHEMA IF NOT EXISTS sm_base;
+   GRANT USAGE ON SCHEMA sm_base TO test;
+
+   -- Create scalar_measurements table
+   CREATE TABLE sm_00002_vku_sinter.scalar_measurements (
+      batch_ref TEXT,
+      order_id TEXT,
+      material_id TEXT,
+      program_ref TEXT,
+      device_id TEXT,
+      station_ref TEXT,
+      clamping_ref TEXT,
+      process_id TEXT,
+      recorded_at TIMESTAMP WITH TIME ZONE NOT NULL,
+      measurement_id UUID NOT NULL,
+      metric_name TEXT,
+      unit TEXT,
+      metric_value DOUBLE PRECISION,
+      metric_string_value TEXT,
+      applied_detector TEXT,
+      assigned_detector_result TEXT,
+      usecase_id TEXT,
+      phase_ref TEXT
    );
-
-   GRANT ALL ON TABLE sm_00002_vku_sinter.monitoring_spec TO test;
-
-   -- Create scalar_measurements hypertable
-   CREATE TABLE IF NOT EXISTS sm_00002_vku_sinter.scalar_measurements
-   (
-       batch_ref text COLLATE pg_catalog."default",
-       order_id text COLLATE pg_catalog."default",
-       material_id text COLLATE pg_catalog."default",
-       program_ref text COLLATE pg_catalog."default",
-       device_id text COLLATE pg_catalog."default",
-       station_ref text COLLATE pg_catalog."default",
-       clamping_ref text COLLATE pg_catalog."default",
-       process_id text COLLATE pg_catalog."default",
-       recorded_at timestamp with time zone NOT NULL,
-       measurement_id uuid NOT NULL,
-       metric_name text COLLATE pg_catalog."default",
-       unit text COLLATE pg_catalog."default",
-       metric_value numeric,
-       metric_string_value text COLLATE pg_catalog."default",
-       applied_detector text COLLATE pg_catalog."default",
-       assigned_detector_result text COLLATE pg_catalog."default",
-       usecase_id text COLLATE pg_catalog."default",
-       phase_ref text COLLATE pg_catalog."default"
-   );
-
    GRANT ALL ON TABLE sm_00002_vku_sinter.scalar_measurements TO test;
 
-   -- Create series_measurements hypertable
-   CREATE TABLE IF NOT EXISTS sm_00002_vku_sinter.series_measurements
-   (
-       recorded_at timestamp with time zone NOT NULL,
-       device_id text COLLATE pg_catalog."default",
-       material_id text COLLATE pg_catalog."default",
-       order_id text COLLATE pg_catalog."default",
-       program_ref text COLLATE pg_catalog."default",
-       batch_ref text COLLATE pg_catalog."default",
-       phase_ref text COLLATE pg_catalog."default",
-       station_ref text COLLATE pg_catalog."default",
-       clamping_ref text COLLATE pg_catalog."default",
-       metric_name text COLLATE pg_catalog."default",
-       json_values jsonb,
-       process_id text COLLATE pg_catalog."default",
-       measurement_id uuid,
-       usecase_id text COLLATE pg_catalog."default",
-       additional_phase_ref text COLLATE pg_catalog."default",
-       applied_detector text COLLATE pg_catalog."default",
-       assigned_detector_result text COLLATE pg_catalog."default"
+   -- Create series_measurements table
+   CREATE TABLE sm_00002_vku_sinter.series_measurements (
+      batch_ref TEXT,
+      order_id TEXT,
+      material_id TEXT,
+      program_ref TEXT,
+      device_id TEXT,
+      station_ref TEXT,
+      clamping_ref TEXT,
+      process_id TEXT,
+      recorded_at TIMESTAMP WITH TIME ZONE NOT NULL,
+      measurement_id UUID,
+      metric_name TEXT,
+      json_values JSONB,
+      usecase_id TEXT,
+      phase_ref TEXT
    );
-
    GRANT ALL ON TABLE sm_00002_vku_sinter.series_measurements TO test;
 
-   -- Create indexes
-   CREATE INDEX IF NOT EXISTS scalar_measurements_recorded_at_idx
-       ON sm_00002_vku_sinter.scalar_measurements USING btree
-       (recorded_at DESC NULLS FIRST);
+   -- Create error_log table
+   CREATE TABLE sm_base.error_log (
+      raw_data TEXT,
+      current_data TEXT,
+      usecase TEXT,
+      transformation_id TEXT,
+      error TEXT,
+      timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+   );
+   GRANT ALL ON TABLE sm_base.error_log TO test;
 
-   CREATE INDEX IF NOT EXISTS series_measurements_recorded_at_idx
-       ON sm_00002_vku_sinter.series_measurements USING btree
-       (recorded_at DESC NULLS FIRST);
+   -- Create indexes for scalar_measurements and series_measurements
+   CREATE INDEX scalar_measurements_recorded_at_idx
+      ON sm_00002_vku_sinter.scalar_measurements USING btree
+      (recorded_at DESC NULLS FIRST);
 
-   -- Convert tables to hypertables
+   CREATE INDEX series_measurements_recorded_at_idx
+      ON sm_00002_vku_sinter.series_measurements USING btree
+      (recorded_at DESC NULLS FIRST);
+
+   -- Convert scalar_measurements and series_measurements to hypertables
    SELECT create_hypertable('sm_00002_vku_sinter.scalar_measurements', by_range('recorded_at', INTERVAL '1 day'));
    SELECT create_hypertable('sm_00002_vku_sinter.series_measurements', by_range('recorded_at', INTERVAL '1 day'));
    ```
 
-4. Verify the `monitoring_spec` table:
+4. Verify the `error_log`, `series_measurements` and `scalar_measurements` table:
+   1. `error_log` table:
    ```sql
-   SELECT * FROM sm_00002_vku_sinter.monitoring_spec;
+   SELECT * FROM sm_base.error_log;
    ```
    Expected output:
    ```
-   spec_uuid | process_id | use_case_name | spec_name | device_id | station_ref | clamping_ref | phase_ref | spec_schema | spec_json | updated_at | updated_by | xlsx_file
-   -----------+------------+---------------+-----------+-----------+-------------+--------------+-----------+-------------+-----------+------------+------------+-----------
+   raw_data | current_data | usecase | transformation_id | error | timestamp 
+   ----------+--------------+---------+-------------------+-------+-----------
+   (0 rows)
+   ```
+
+   2. `series_measurements` table:
+   ```sql
+   SELECT * FROM sm_00002_vku_sinter.series_measurements;
+   ```
+   Expected output:
+   ```
+   batch_ref | order_id | material_id | program_ref | device_id | station_ref | clamping_ref | process_id | recorded_at | measurement_id | metric_name | json_values | usecase_id | phase_ref 
+   -----------+----------+-------------+-------------+-----------+-------------+--------------+------------+-------------+----------------+-------------+-------------+------------+-----------
+   (0 rows)
+   ```
+
+   3. `scalar_measurements` table:
+   ```sql
+   SELECT * FROM sm_00002_vku_sinter.scalar_measurements;
+   ```
+   Expected output:
+   ```
+   batch_ref | order_id | material_id | program_ref | device_id | station_ref | clamping_ref | process_id | recorded_at | measurement_id | metric_name | unit | metric_value | metric_string_value | applied_detector | assigned_detector_result | usecase_id | phase_ref 
+   -----------+----------+-------------+-------------+-----------+-------------+--------------+------------+-------------+----------------+-------------+------+--------------+---------------------+------------------+--------------------------+------------+-----------
    (0 rows)
    ```
 
