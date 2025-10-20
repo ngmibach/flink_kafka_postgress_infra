@@ -241,6 +241,3 @@ The data feeder is a Kubernetes pod that generates sample data for Kafka. It is 
 ## Notes
 - Ensure all services (ArgoCD, k9s, local registry, Kafka, PostgresDB) are stopped before starting the setup to avoid port conflicts.
 - The data feeder pod should be used sparingly to avoid overloading your system.
-- For issues with the Flink Kubernetes Operator, verify cert-manager installation and Helm chart compatibility.
-- For API-related queries or additional xAI services, visit [https://x.ai/api](https://x.ai/api).
-
