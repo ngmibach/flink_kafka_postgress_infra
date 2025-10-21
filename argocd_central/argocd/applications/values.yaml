@@ -18,7 +18,7 @@ apps:
 
   ollama:
     enabled: false
-    repoURL: http://172.17.0.1:3000/git/argocd_central.git
+    repoURL: http://172.17.0.1:3000/git/argocd_central.git      
     targetRevision: master
     chartPath: k8s/local-ai
     valuePath: .

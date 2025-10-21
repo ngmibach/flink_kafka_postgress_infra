@@ -21,7 +21,7 @@ spec:
   project: {{ $cluster.project | quote }}
   source:
     repoURL: {{ $app.repoURL | quote }}
-    targetRevision: {{ $app.targetRevision | quote }}
+    targetRevision: {{ $app.targetRevision | quote }}    
     path: {{ $app.chartPath | quote }}
     helm:
       valueFiles:
