@@ -205,8 +205,10 @@ The Flink Kubernetes Operator requires images from the Bosch Artifactory. Follow
    -----------+----------+-------------+-------------+-----------+-------------+--------------+------------+-------------+----------------+-------------+------+--------------+---------------------+------------------+--------------------------+------------+-----------
    (0 rows)
    ```
+## Notes
+- You can also use these command to view the content stored in the PostgresDB.
 
-5. To view data in PostgresDB:
+5. To view selected data at desired time in PostgresDB:
    ```sql
    SELECT recorded_at, metric_name, json_values 
    FROM sm_00002_vku_sinter.series_measurements 
