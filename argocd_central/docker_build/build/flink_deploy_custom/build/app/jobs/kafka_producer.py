@@ -138,7 +138,7 @@ def generate_sensor_data() -> dict[str, Any]:
                         "relativeRecordingTimes": time_series,
                         "timesUnit": "ms"
                     },
-                    "infoACII": {
+                    "infoASCII": {
                         "values": generate_info_ascii_series(series_length),
                         "valuesUnit": None,
                         "relativeRecordingTimes": time_series,
@@ -154,17 +154,13 @@ def generate_sensor_data() -> dict[str, Any]:
 
 
 def main() -> None:
-    """
-    Controls the flow of the producer. It first subscribes to the topic and then
-    generates sensor data and sends it to the topic.
-    """
     bootstrap_servers = '172.17.0.1:9092'
-    topic = 'flink-source'
+    topic = '00002-vku-sinter_inbound-batchMeasurement'
     producer = KafkaProducer(
         bootstrap_servers=bootstrap_servers,
         value_serializer=lambda v: json.dumps(v).encode('utf-8')
     )
-    
+
     while True:
         sensor_data = generate_sensor_data()
         producer.send(topic, value=sensor_data)

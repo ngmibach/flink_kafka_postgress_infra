@@ -1,6 +1,6 @@
-apache-flink>=1.19.2
-dependency_injector>=4.41.0
+cython==3.0.11
+pyarrow
+apache-flink==1.19.2
+dependency_injector==4.41.0
 kafka-python==2.0.2
-fastavro
-aiohttp
-requests
+pytz==2023.3

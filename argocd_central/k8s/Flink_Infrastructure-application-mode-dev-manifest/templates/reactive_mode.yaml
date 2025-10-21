@@ -16,47 +16,58 @@ spec:
     env.java.opts: -XX:+UseG1GC -Xms100m -Xmx250m -XX:NativeMemoryTracking=summary
     job.autoscaler.enabled: "true"
     job.autoscaler.scaling.enabled : "true"
-    job.autoscaler.stabilization.interval: 1m
-    job.autoscaler.metrics.window: 2m
+    job.autoscaler.stabilization.interval: 5m
+    job.autoscaler.metrics.window: 5m
     job.autoscaler.target.utilization: "0.7"
     job.autoscaler.target.utilization.boundary: "0.2"
-    job.autoscaler.restart.time: 2m
-    job.autoscaler.catch-up.duration: 2m
+    job.autoscaler.restart.time: 5m
+    jobmanager.adaptive-scheduler.resource-stabilization-timeout: 60000
+    jobmanager.adaptive-scheduler.resource-wait-timeout: 300000
+    jobmanager.adaptive-scheduler.min-parallelism-increase: 2
+    job.autoscaler.catch-up.duration: 5m
     pipeline.max-parallelism: "5"
     jobmanager.scheduler: "adaptive"
     akka.client.timeout: "900000"
   serviceAccount: flink
   jobManager:
     resource:
-      memory: "1048m"
-      cpu: 1
+      memory: "2048m"
+      cpu: 1.5
   taskManager:
     replicas: 2
     resource:
-      memory: "2048m"
-      cpu: 0.5
+      memory: "3072m"
+      cpu: 1
   podTemplate:
-      spec:
-        containers:
-          - name: flink-main-container
-            volumeMounts:
-              - name: checkpoint-volume
-                mountPath: /home/dev/checkpoints/
-              - name: savepoint-volume
-                mountPath: /home/dev/savepoints/
-        volumes:
-          - name: checkpoint-volume
-            persistentVolumeClaim:
-              claimName: checkpoint-volume-claim
-          - name: savepoint-volume
-            persistentVolumeClaim:
-              claimName: savepoint-volume-claim
+    spec:
+      initContainers:
+        - name: set-permissions
+          image: busybox
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "chown -R 9999:9999 /home/dev/checkpoints /home/dev/savepoints && chmod -R 775 /home/dev/checkpoints /home/dev/savepoints"]
+          volumeMounts:
+            - name: checkpoint-volume
+              mountPath: /home/dev/checkpoints/
+            - name: savepoint-volume
+              mountPath: /home/dev/savepoints/
+      containers:
+        - name: flink-main-container
+          volumeMounts:
+            - name: checkpoint-volume
+              mountPath: /home/dev/checkpoints/
+            - name: savepoint-volume
+              mountPath: /home/dev/savepoints/
+      volumes:
+        - name: checkpoint-volume
+          persistentVolumeClaim:
+            claimName: checkpoint-volume-claim
+        - name: savepoint-volume
+          persistentVolumeClaim:
+            claimName: savepoint-volume-claim
   restartNonce: {{ .Values.restartValue }}
   job:
     jarURI: "local:///opt/flink/app/jobs/flink_job.py"
     entryClass: "org.apache.flink.client.python.PythonDriver"
     args: ["-py", "/opt/flink/app/jobs/flink_job.py"]
     parallelism: 1
-    
-  
-  # mode: standalone
+    # mode: standalone

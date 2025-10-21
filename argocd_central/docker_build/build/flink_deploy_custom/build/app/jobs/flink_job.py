@@ -1,363 +1,113 @@
+import sys
+from pathlib import Path
 import json
 import uuid
-import os
+from typing import Dict, Any, List
 from pyflink.common.typeinfo import Types
 from pyflink.common.watermark_strategy import WatermarkStrategy
-from pyflink.table import StreamTableEnvironment, EnvironmentSettings
-from pyflink.datastream import DataStream, StreamExecutionEnvironment
-from pyflink.datastream.connectors import JdbcSink, JdbcConnectionOptions, JdbcExecutionOptions
-from pyflink.datastream.connectors.kafka import KafkaSource, KafkaOffsetsInitializer
+from pyflink.datastream import StreamExecutionEnvironment, DataStream
+from abc import ABC, abstractmethod
+from datetime import datetime
+import pytz
+import traceback
+from pyflink.datastream.connectors.jdbc import JdbcConnectionOptions, JdbcExecutionOptions, JdbcSink
 from pyflink.common.serialization import SimpleStringSchema
 from pyflink.common import Row
-from abc import ABC, abstractmethod
-from dependency_injector import containers, providers
-import datetime
-import pytz
+from pyflink.datastream.connectors.kafka import KafkaSource, KafkaOffsetsInitializer
+from dataclasses import astuple, dataclass
 from copy import deepcopy
 
-def get_config_section(config):
-    return config
+@dataclass
+class ErrorLogInternalData:
+    raw_data: str
+    current_data: str
+    usecase: str
+    transformation_id: str
+    error: str
+    timestamp: datetime
 
-def get_nested_value_from_dict(data, *keys):
-    current = data
+def get_utcoffset_of_timezone(timestamp: str, time_zone: str = None):
+    ts = timestamp
+    if ts[-1] == "Z":
+        ts = ts.replace("Z", "+00:00")
+        
+    if time_zone == None:
+        ts_zone = ts[-6:]
+        ts_without_time_zone = ts[:-6]
+
+        if len(ts_without_time_zone) > 26:
+            ts_without_time_zone = ts_without_time_zone[:26]
+
+        datetime_without_zone = datetime.strptime(
+            ts_without_time_zone, "%Y-%m-%dT%H:%M:%S.%f"
+        )
+    else:
+        ts_zone = time_zone
+        if ts[-1] == "Z":
+            ts_without_time_zone = ts[:-1]
+        else:
+            ts_without_time_zone = ts
+        try:
+            datetime_without_zone = datetime.strptime(
+                ts_without_time_zone, "%Y-%m-%dT%H:%M:%S.%f"
+            )
+        except Exception:
+            datetime_without_zone = datetime.strptime(
+                ts_without_time_zone, "%Y-%m-%dT%H:%M:%S.%f%z"
+            )
+
+    datetime_with_zone = datetime.strptime(
+        ts_without_time_zone + ts_zone, "%Y-%m-%dT%H:%M:%S.%f%z"
+    )
+    utc_time = datetime_without_zone - datetime_with_zone.utcoffset()
+    return utc_time
+
+def get_nested_value_from_dict(dictionary, *keys):
+    current = dictionary
     for key in keys:
         current = current.get(key, {})
-    return current if current != {} else None
-
-def get_utcoffset_of_timezone(timestamp):
-    try:
-        return datetime.datetime.fromisoformat(timestamp)
-    except ValueError:
-        return datetime.datetime.now(pytz.utc)
+    return current
 
 def convert_to_flinkdatarow(type_str):
-    types = []
-    for t in type_str.split(','):
-        count, dtype = t.split('-')
-        if dtype == 'text':
-            types.extend([Types.STRING()] * int(count))
-        elif dtype == 'timestamptz':
-            types.extend([Types.SQL_TIMESTAMP()] * int(count))
-        elif dtype == 'double':
-            types.extend([Types.DOUBLE()] * int(count))
-    return Types.ROW(types)
+    def type_str_to_flink(t_str):
+        array = t_str.split("-")
+        if array[1] == "text":
+            return [Types.STRING() for _ in range(int(array[0]))]
+        elif array[1] == "timestamptz":
+            return [Types.SQL_TIMESTAMP() for _ in range(int(array[0]))]
+        elif array[1] == "double":
+            return [Types.DOUBLE() for _ in range(int(array[0]))]
+    types_lst = []
+    for e in type_str.split(","):
+        types_lst.extend(type_str_to_flink(e))
+    return Types.ROW(types_lst)
 
-class ErrorLogInternalData:
-    def __init__(self, raw_data, current_data, usecase, transformation_id, error, timestamp):
-        self.raw_data = raw_data
-        self.current_data = current_data
-        self.usecase = usecase
-        self.transformation_id = transformation_id
-        self.error = error
-        self.timestamp = timestamp
+class PipelineConfigFactory(ABC):
+    @property
+    @abstractmethod
+    def config_internal(self):
+        pass
+    
+    @property
+    @abstractmethod
+    def config_pipeline(self):
+        pass
 
-    def __iter__(self):
-        return iter((self.raw_data, self.current_data, self.usecase, self.transformation_id, self.error, self.timestamp))
+    @abstractmethod
+    def create_default_pipeline_env(self) -> StreamExecutionEnvironment:
+        pass
 
 class TransformationAbstract(ABC):
-    def __init__(self):
-        self.outputs = {}
-
     @abstractmethod
-    def apply(self, *streams, config: Dict) -> DataStream:
+    def apply(self, *streams, config: Dict = None) -> DataStream:
         pass
 
-class PipelineBuilderFactory(ABC):
-    def __init__(self, pipeline_config, sinksourcemanager, transform_factory):
-        self.pipeline_config = pipeline_config
-        self.sinksourcemanager = sinksourcemanager
-        self.transform_factory = transform_factory
-        self.datastream = None
-
-    def chain(self, transformation_name, *streams, **config):
-        t_instance = self.transform_factory.create_transformation(transformation_name)
-        if not streams:
-            self.datastream = t_instance.apply(self.datastream, **config)
-        else:
-            self.datastream = t_instance.apply(*streams, **config)
-        return self
-
-    def finish_chain(self):
-        return self.datastream
-
-    @abstractmethod
-    def build_pipeline(self):
-        pass
-
-class PipelineConfigImpl:
+class FlinkTransformationWiring(ABC):
     def __init__(self):
-        self._config_internal = {}
-        self._config_pipeline = {}
-
-    @property
-    def config_internal(self):
-        return self._config_internal
-
-    @config_internal.setter
-    def config_internal(self, value):
-        self._config_internal = value
-
-    @property
-    def config_pipeline(self):
-        return self._config_pipeline
-
-    @config_pipeline.setter
-    def config_pipeline(self, value):
-        self._config_pipeline = value
-
-    def create_default_pipeline_env(self):
-        env = StreamExecutionEnvironment.get_execution_environment()
-        if "Pipeline" in self._config_pipeline and "Max_Parallelism" in self._config_pipeline["Pipeline"]:
-            env.set_max_parallelism(int(self._config_pipeline["Pipeline"]["Max_Parallelism"]))
-        for jar in self._config_pipeline.get("JARS", []):
-            env.add_jars(f"file:///opt/flink/lib/{jar}")
-        return env
-
-class SourceSinkManager:
-    def __init__(self, config):
-        self.config = config
-
-    def get_sources_info(self) -> List[str]:
-        return list(self.config.config_internal["Sources"].keys())
-
-    def get_sources(self, config) -> Dict[str, Any]:
-        dict_retrn = {}
-        source_config = config.config_internal["Sources"]
-        for name, source in source_config.items():
-            if source["type"] == "kafka":
-                obj = FlinkSourceKafkaImplV2()
-                dict_retrn[name] = obj.create_source(config=source)
-        return dict_retrn
-
-    def get_sinks_info(self) -> List[str]:
-        return list(self.config.config_internal["Sinks"].keys())
-
-    def get_sinks(self, config) -> Dict[str, Any]:
-        dict_retrn = {}
-        sinks_config = config.config_internal["Sinks"]
-        for name, sink in sinks_config.items():
-            obj = FlinkSinkImplPostgres()
-            dict_retrn[name] = obj.create_sink(config=sink)
-        return dict_retrn
-
-class FlinkSourceKafkaImplV2:
-    @property
-    def source_type(self):
-        return "kafka"
-
-    def create_source(self, config: Dict) -> KafkaSource:
-        kafka_props = config["config"]
-        topic = config["topic_name"]
-        group_id = kafka_props.get("group.id", "default_group")
-        source_builder = KafkaSource.builder() \
-            .set_bootstrap_servers(kafka_props["bootstrap.servers"]) \
-            .set_topics(topic) \
-            .set_group_id(group_id)
-
-        config_default = {"security.protocol": "PLAINTEXT"}
-        config_default.update(kafka_props)
-        for key, value in config_default.items():
-            source_builder.set_property(key, str(value))
-
-        if "latest_offset" in config and config["latest_offset"]:
-            starting_offsets = KafkaOffsetsInitializer.latest()
-        else:
-            starting_offsets = KafkaOffsetsInitializer.earliest()
-        source_builder.set_starting_offsets(starting_offsets)
-
-        deserializer = SimpleStringSchema()
-        source_builder.set_value_only_deserializer(deserializer)
-
-        return source_builder.build()
-
-class FlinkSinkImplPostgres:
-    @property
-    def sink_type(self):
-        return "jdbc"
-
-    def create_sink(self, config):
-        jdbc_props = config["config"]
-        type_info_postgres = Types.ROW(convert_to_flinkdatarow(type_str=str(jdbc_props["types_str"])))
-        user_name = jdbc_props['user']
-        password = jdbc_props['password']
-
-        jdbc_sink = JdbcSink.sink(
-            jdbc_props['sql_statement'], type_info_postgres,
-            JdbcConnectionOptions.JdbcConnectionOptionsBuilder().with_url(
-                f"{jdbc_props['connectionstring']}/{jdbc_props['database']}").with_driver_name(jdbc_props['driver']).
-            with_user_name(user_name).with_password(password).build(),
-            JdbcExecutionOptions.builder().with_batch_interval_ms(
-                int(jdbc_props['insertbatchinterval'])).with_batch_size(
-                int(jdbc_props['batchsize'])).with_max_retries(int(jdbc_props['retries'])).build())
-
-        return jdbc_sink
-
-class ParseKafkaMessge(TransformationAbstract):
-    def __json_parse(self, data):
-        error_flag = False
-        try:
-            dict_data = json.loads(data)
-            return (dict_data, error_flag, None)
-        except Exception as e:
-            full_msg = str(e) + "\n" + traceback.format_exc()
-            current_time = datetime.datetime.now()
-            data_pass = ErrorLogInternalData(data, data, "UC-x", "RAW", str(full_msg), current_time)
-            error_flag = True
-            return (data, error_flag, [data_pass])
-
-    def apply(self, *streams, config=None) -> DataStream:
-        return streams[0].map(lambda x: self.__json_parse(x))
-
-class FilterStreamMain(TransformationAbstract):
-    def apply(self, *streams, config=None) -> DataStream:
-        return streams[0].filter(lambda x: x[1] == False)
-
-class FilterStreamError(TransformationAbstract):
-    def apply(self, *streams, config=None) -> DataStream:
-        return streams[0].filter(lambda x: x[1] == True)
-
-class MapErrorDataToFlinkRow(TransformationAbstract):
-    def apply(self, *streams, config=None) -> DataStream:
-        config_jdbc_dct = config["Sinks"]["JDBCSinkError"]["config"]
-        rows = convert_to_flinkdatarow(config_jdbc_dct["types_str"])
-        return streams[0].flat_map(lambda x: (item for item in x[2])).map(lambda x: tuple(x)).map(lambda tuple: Row(*tuple), output_type=rows)
-
-class MapDataToFlinkRow(TransformationAbstract):
-    def apply(self, *streams, config) -> DataStream:
-        config_jdbc_dct = config["config"]
-        rows = convert_to_flinkdatarow(config_jdbc_dct["types_str"])
-        return streams[0].map(lambda tuple: Row(*tuple), output_type=rows)
-
-class ParamExtractAndCompose(TransformationAbstract):
-    def __convert_dict_element_to_str(self, tuple_data):
-        return tuple(json.dumps(item) if isinstance(item, dict) else item for item in tuple_data)
-
-    def __convert_to_list_tuple(self, json_section_dct, is_series, usecase_id, extra_params=None):
-        param_list = []
-        for key, values_dct in json_section_dct.items():
-            tple = ""
-            if is_series:
-                values = (values_dct, None, None)
-            else:
-                if isinstance(values_dct["value"], str):
-                    value = deepcopy(values_dct["value"])
-                    values_dct["value"] = None
-                    values_dct["value_string"] = value
-                else:
-                    values_dct["value_string"] = None
-                values = (values_dct["unit"], values_dct["value"], values_dct["value_string"], None, None)
-            tple = (str(uuid.uuid4()),) + (key,) + values + (usecase_id,)
-            if extra_params is None:
-                tple = tple + (None, None, None)
-            else:
-                tple = tple + tuple(extra_params)
-            tple_converted = self.__convert_dict_element_to_str(tple)
-            param_list.append(tple_converted)
-        return param_list
-
-    def __extract_metric_params(self, json_data, sinks_config_dict, config_section, is_series):
-        uc_id = sinks_config_dict["USECASE"]["id"]
-        param_scalar_parent_key = sinks_config_dict[config_section]["parent_key"]
-        try:
-            json_section = get_nested_value_from_dict(json_data, *param_scalar_parent_key.split('.'))
-            if json_section is None:
-                json_section = {}
-        except KeyError:
-            json_section = {}
-        config_extra = deepcopy(sinks_config_dict[config_section])
-        del config_extra["parent_key"]
-        extra_params = None
-        if len(config_extra) > 0:
-            extra_params = []
-            for key_target in config_extra.keys():
-                if "--None--" not in key_target:
-                    extra_params.append(get_nested_value_from_dict(json_data, *key_target.split('.')))
-                else:
-                    extra_params.append(None)
-        return self.__convert_to_list_tuple(json_section, is_series, uc_id, extra_params)
-
-    def __extract_meta_param(self, json_data, sinks_config_dict, config_section_meta):
-        param_meta_section = sinks_config_dict[config_section_meta]
-        def value_convert_and_extract(value):
-            if value == "--None--/key":
-                reduced_val = "generated_" + str(uuid.uuid4())
-            elif value == "--None--/value":
-                reduced_val = {}
-            else:
-                reduced_val = get_nested_value_from_dict(json_data, *value.split('.'))
-            if value == "process.recordedAt":
-                return get_utcoffset_of_timezone(reduced_val)
-            if value in ["process", "part"]:
-                dict_val = deepcopy(reduced_val)
-                if value == "process":
-                    dict_val.pop("parameters", None)
-                    dict_val.pop("recordedAt", None)
-                elif value == "part":
-                    dict_val.pop("program", None)
-                    dict_val.pop("station", None)
-                return dict_val
-            return reduced_val
-        gen_expr = (value_convert_and_extract(value) for value in param_meta_section)
-        tuple_meta_param = tuple(gen_expr)
-        return self.__convert_dict_element_to_str(tuple_meta_param)
-
-    def __compose_data_list(self, scalar_param_list, series_param_list, meta_tuple):
-        data_dict = {}
-        data_dict["scalar"] = [meta_tuple + tuple_data for tuple_data in scalar_param_list]
-        data_dict["series"] = [meta_tuple + tuple_data for tuple_data in series_param_list]
-        return data_dict
-
-    def __validation_check(self, data_dict, SCALAR_PARAM_NUM=18, SERIES_PARAM_NUM=14):
-        for v in data_dict["scalar"]:
-            if len(v) != SCALAR_PARAM_NUM:
-                len_num_detected = len(v)
-                print(f"Missing SCALAR parameters, expected {SCALAR_PARAM_NUM}, got {len_num_detected}")
-        for v in data_dict["series"]:
-            if len(v) != SERIES_PARAM_NUM:
-                len_num_detected = len(v)
-                print(f"Missing SERIES parameters, expected {SERIES_PARAM_NUM}, got {len_num_detected}")
-        print(f"Parameter validation passed")
-        return True
-
-    def __extract_compose(self, incomming_json_data, config):
-        sinks_config_dict = get_config_section(config["TRANSFORMATION"]["sinks_config"])
-        meta_params_tuple = self.__extract_meta_param(incomming_json_data, sinks_config_dict, "META_PARAMS")
-        scalar_params_list = self.__extract_metric_params(incomming_json_data, sinks_config_dict, "SCALAR_PARAMS", is_series=False)
-        series_params_list = self.__extract_metric_params(incomming_json_data, sinks_config_dict, "SERIES_PARAMS", is_series=True)
-        data_dict = self.__compose_data_list(scalar_params_list, series_params_list, meta_params_tuple)
-        error_flag = self.__validation_check(data_dict)
-        return (data_dict, error_flag)
-
-    def apply(self, *streams, config: Dict) -> DataStream:
-        return streams[0].map(lambda x: self.__extract_compose(x, config)).filter(lambda x: x[1] == True).map(lambda x: x[0])
-
-class ScalarMetricStreamFiltering(TransformationAbstract):
-    def apply(self, *streams, config=None) -> DataStream:
-        return streams[0].filter(lambda x: 'scalar' in x).map(lambda x: x['scalar']).flat_map(lambda x: (tuple_data for tuple_data in x))
-
-class SeriesMetricStreamFiltering(TransformationAbstract):
-    def apply(self, *streams, config=None) -> DataStream:
-        return streams[0].filter(lambda x: 'series' in x).map(lambda x: x['series']).flat_map(lambda x: (tuple_data for tuple_data in x))
-
-class ContainerWiring(containers.DeclarativeContainer):
-    nan_string_replace = providers.Factory(NanStringReplacementImpl)
-    parse_kafka_message = providers.Factory(ParseKafkaMessge)
-    filter_stream_main = providers.Factory(FilterStreamMain)
-    filter_stream_error = providers.Factory(FilterStreamError)
-    error_flink_datarow = providers.Factory(MapErrorDataToFlinkRow)
-    main_flink_datarow = providers.Factory(MapDataToFlinkRow)
-    param_extract_compose = providers.Factory(ParamExtractAndCompose)
-    scalar_stream_filter = providers.Factory(ScalarMetricStreamFiltering)
-    series_stream_filter = providers.Factory(SeriesMetricStreamFiltering)
-
-class TransformationWiringImplV1:
-    def __init__(self):
-        self.instantiated_transformations = {}
-
-    def create_transformation(self, t_name, *args):
-        print(f"Generating transformation: {t_name}")
-        t_instance = self.mapper[t_name]()
-        return t_instance
+        self.mapper = {}
+        
+    def create_transformation(self, t_name):
+        return self.mapper[t_name]()
 
     def map_transformations(self, container):
         self.mapper = {
@@ -373,33 +123,340 @@ class TransformationWiringImplV1:
         }
         return self.mapper
 
-class NanStringReplacementImpl(TransformationAbstract):
+class FlinkSourceFactory(ABC):
+    @abstractmethod
+    def create_source(self, config: Dict) -> Any:
+        pass
+
+class FlinkSinkFactory(ABC):
+    @abstractmethod
+    def create_sink(self, config: Dict) -> Any:
+        pass
+
+class SourceSinkManagerFactory(ABC):
+    def __init__(self, config: PipelineConfigFactory):
+        self.config = config
+
+    @abstractmethod
+    def get_sources(self, config: PipelineConfigFactory) -> Dict[str, FlinkSourceFactory]:
+        pass
+
+    @abstractmethod
+    def get_sinks(self, config: PipelineConfigFactory) -> Dict[str, FlinkSinkFactory]:
+        pass
+
+class PipelineBuilderFactory(ABC):
+    def __init__(self, pipeline_config: PipelineConfigFactory,
+                 sinksourcemanager: SourceSinkManagerFactory,
+                 transform_factory: FlinkTransformationWiring) -> None:
+        self.pipeline_config = pipeline_config
+        self.sinksourcemanager = sinksourcemanager
+        self.transform_factory = transform_factory
+        self.datastream = None
+
+    def chain(self, transformation_name, *streams, **config):
+        t_instance = self.transform_factory.create_transformation(transformation_name)
+        if not streams:
+            self.datastream = t_instance.apply(self.datastream, **config)
+        else:
+            self.datastream = t_instance.apply(*streams, **config)
+        return self
+    
+    def finish_chain(self):
+        return self.datastream
+
+    @abstractmethod
+    def build_pipeline(self):
+        pass
+
+class SourceSinkManager(SourceSinkManagerFactory):
+    def get_sources(self, config: PipelineConfigFactory) -> Dict[str, FlinkSourceFactory]:
+        sources = {}
+        for name, source_cfg in config.config_internal["Sources"].items():
+            if source_cfg["type"] == "kafka":
+                obj = FlinkSourceKafkaImplV2()
+                sources[name] = obj.create_source(source_cfg)
+        return sources
+
+    def get_sinks(self, config: PipelineConfigFactory) -> Dict[str, FlinkSinkFactory]:
+        sinks = {}
+        for name, sink_cfg in config.config_internal["Sinks"].items():
+            obj = FlinkSinkImplPostgres()
+            sinks[name] = obj.create_sink(sink_cfg)
+        return sinks
+
+class FlinkSourceKafkaImplV2(FlinkSourceFactory):
+    def create_source(self, config: Dict) -> KafkaSource:
+        kafka_props = config["config"]
+        topic = config["topic_name"]
+        group_id = kafka_props.get("group.id", "forward-only")
+
+        source_builder = KafkaSource.builder() \
+            .set_bootstrap_servers(kafka_props["bootstrap.servers"]) \
+            .set_topics(topic) \
+            .set_group_id(group_id) \
+            .set_value_only_deserializer(SimpleStringSchema())
+
+        if config["latest_offset"]:
+            starting_offsets = KafkaOffsetsInitializer.latest()
+        else:
+            starting_offsets = KafkaOffsetsInitializer.earliest()
+
+        source_builder.set_starting_offsets(starting_offsets)
+        return source_builder.build()
+
+class FlinkSinkImplPostgres(FlinkSinkFactory):
+    def create_sink(self, config):
+        jdbc_props = config["config"]
+        type_info = convert_to_flinkdatarow(jdbc_props["types_str"])
+
+        user_name = jdbc_props['user']
+        password = jdbc_props['password']
+
+        jdbc_sink = JdbcSink.sink(
+            jdbc_props['sql_statement'], 
+            type_info,
+            JdbcConnectionOptions.JdbcConnectionOptionsBuilder().with_url(
+                f"{jdbc_props['connectionstring']}/{jdbc_props['database']}").with_driver_name(jdbc_props['driver']).
+            with_user_name(user_name).with_password(password).build(),
+            JdbcExecutionOptions.builder().with_batch_interval_ms(
+                int(jdbc_props['insertbatchinterval'])).with_batch_size(
+                    int(jdbc_props['batchsize'])).with_max_retries(int(jdbc_props['retries'])).build())
+
+        return jdbc_sink
+
+class MapDataToFlinkRow(TransformationAbstract):
+    def apply(self, *streams, config) -> DataStream:
+        config_jdbc_dct = config["config"]
+        rows = convert_to_flinkdatarow(config_jdbc_dct["types_str"])
+        return streams[0].map(lambda t: Row(*t), output_type=rows)
+
+class MapErrorDataToFlinkRow(TransformationAbstract):
     def apply(self, *streams, config=None) -> DataStream:
+        config_jdbc_dct = config["Sinks"]["JDBCSinkError"]["config"]
+        rows = convert_to_flinkdatarow(config_jdbc_dct["types_str"])
+        return streams[0].flat_map(lambda x: (item for item in x[2])).map(lambda x: astuple(x)).map(lambda t: Row(*t), output_type=rows)
+
+class FilterStreamMain(TransformationAbstract):
+    def apply(self, *streams) -> DataStream:
+        return streams[0].filter(lambda x: x[1] == False)
+
+class FilterStreamError(TransformationAbstract):
+    def apply(self, *streams) -> DataStream:
+        return streams[0].filter(lambda x: x[1] == True)
+
+class NanStringReplacementImpl(TransformationAbstract):
+    def apply(self, *streams) -> DataStream:
         def __nanStrReplace(raw_json_str: str):
-            json_str = raw_json_str.replace(": NaN,", ': "NaN",').replace(": NaN", ': "NaN"')
-            return json_str
-        return streams[0].map(lambda x: __nanStrReplace(x))
+            return raw_json_str.replace(": NaN,", ': "NaN",').replace(": NaN", ': "NaN"')
+        return streams[0].map(__nanStrReplace)
 
-class CustomPipeline(PipelineBuilderFactory):
-    def __init__(self, config, sinksourcemanager, transform_factory):
-        super().__init__(config, sinksourcemanager, transform_factory)
+class ParseKafkaMessage(TransformationAbstract):
+    def __json_parse(self, data):
+        error_flag = False
+        try:
+            dict_data = json.loads(data)
+            return (dict_data, error_flag, None)
+        except Exception as e:
+            full_msg = str(e) + "\n" + traceback.format_exc()
+            current_time = datetime.now()
+            data_pass = ErrorLogInternalData(data, data, "UC-x", "RAW", full_msg, current_time)
+            error_flag = True
+            return (data, error_flag, [data_pass])
+        
+    def apply(self, *streams) -> DataStream:
+        return streams[0].map(self.__json_parse)
 
+class ParamExtractAndCompose(TransformationAbstract):
+    def __convert_dict_element_to_str(self, tuple_data):
+        return tuple(json.dumps(item) if isinstance(item, dict) else item for item in tuple_data)
+        
+    def __convert_to_list_tuple(self, json_section_dct, is_series, usecase_id, extra_params=None):
+        param_list = []
+        for key, values_dct in json_section_dct.items():
+            tple = ()
+            if is_series:
+                values = (json.dumps(values_dct), )
+            else:
+                if isinstance(values_dct.get("value"), str):
+                    value = values_dct["value"]
+                    values_dct["value"] = None
+                    values_dct["value_string"] = value
+                else:
+                    values_dct["value_string"] = None
+                values = (values_dct.get("unit"), values_dct.get("value"), values_dct.get("value_string"), None, None)
+            tple = (str(uuid.uuid4()), key) + values + (usecase_id,)
+            if extra_params is None:
+                tple += (None, None, None,)
+            else:
+                tple += tuple(extra_params)
+            param_list.append(self.__convert_dict_element_to_str(tple))
+        return param_list
+
+    def __extract_metric_params(self, json_data, sinks_config_dict, config_section, is_series):
+        uc_id = sinks_config_dict["USECASE"]["id"]
+        parent_key = sinks_config_dict[config_section]["parent_key"]
+        json_section = get_nested_value_from_dict(json_data, *parent_key.split('.')) or {}
+        config_extra = deepcopy(sinks_config_dict[config_section])
+        del config_extra["parent_key"]
+        extra_params = []
+        for key_target, val in config_extra.items():
+            if val == "":
+                extra_params.append(get_nested_value_from_dict(json_data, *key_target.split('.')))
+            else:
+                extra_params.append(None)
+        return self.__convert_to_list_tuple(json_section, is_series, uc_id, extra_params)
+
+    def __extract_meta_param(self, json_data, sinks_config_dict, config_section_meta):
+        param_meta_section = sinks_config_dict[config_section_meta]
+        def value_convert_and_extract(value):
+            if value == "--None--/key":
+                return "generated_" + str(uuid.uuid4())
+            elif value == "--None--/value":
+                return {}
+            else:
+                reduced_val = get_nested_value_from_dict(json_data, *value.split('.'))
+            if value == "process.recordedAt":
+                return get_utcoffset_of_timezone(reduced_val)
+            if value == "process":
+                dict_val = deepcopy(reduced_val)
+                del dict_val["parameters"]
+                del dict_val["recordedAt"]
+                return dict_val
+            if value == "part":
+                dict_val = deepcopy(reduced_val)
+                del dict_val["program"]
+                del dict_val["station"]
+                return dict_val
+            return reduced_val
+        tuple_meta_param = tuple(value_convert_and_extract(v) for v in param_meta_section)
+        return self.__convert_dict_element_to_str(tuple_meta_param)
+
+    def __compose_data_list(self, scalar_param_list, series_param_list, meta_tuple):
+        return {
+            "scalar": [meta_tuple + t for t in scalar_param_list],
+            "series": [meta_tuple + t for t in series_param_list]
+        }
+
+    def __validation_check(self, data_dict):
+        SCALAR_PARAM_NUM = 18
+        SERIES_PARAM_NUM = 14
+        valid = True
+        for v in data_dict.get("scalar", []):
+            if len(v) != SCALAR_PARAM_NUM:
+                print(f"Missing SCALAR parameters, expected {SCALAR_PARAM_NUM}, got {len(v)}")
+                valid = False
+        for v in data_dict.get("series", []):
+            if len(v) != SERIES_PARAM_NUM:
+                print(f"Missing SERIES parameters, expected {SERIES_PARAM_NUM}, got {len(v)}")
+                valid = False
+        return valid
+
+    def __extract_compose(self, incomming_json_data, config):
+        sinks_config_dict = config["TRANSFORMATION"]["sinks_config"]
+        meta_params_tuple = self.__extract_meta_param(incomming_json_data, sinks_config_dict, "META_PARAMS")
+        scalar_params_list = self.__extract_metric_params(incomming_json_data, sinks_config_dict, "SCALAR_PARAMS", False)
+        series_params_list = self.__extract_metric_params(incomming_json_data, sinks_config_dict, "SERIES_PARAMS", True)
+        data_dict = self.__compose_data_list(scalar_params_list, series_params_list, meta_params_tuple)
+        error_flag = self.__validation_check(data_dict)
+        return (data_dict, error_flag)
+
+    def apply(self, *streams, config: Dict) -> DataStream:
+        return streams[0].map(lambda x: self.__extract_compose(x, config)).filter(lambda x: x[1]).map(lambda x: x[0])
+
+class ScalarMetricStreamFiltering(TransformationAbstract):
+    def apply(self, *streams) -> DataStream:
+        return streams[0].filter(lambda x: 'scalar' in x).map(lambda x: x['scalar']).flat_map(lambda x: (item for item in x))
+
+class SeriesMetricStreamFiltering(TransformationAbstract):
+    def apply(self, *streams) -> DataStream:
+        return streams[0].filter(lambda x: 'series' in x).map(lambda x: x['series']).flat_map(lambda x: (item for item in x))
+
+class Pipeline(PipelineBuilderFactory):
     def build_pipeline(self):
         pipeline_env = self.pipeline_config.create_default_pipeline_env()
-        t_env = StreamTableEnvironment.create(pipeline_env, environment_settings=EnvironmentSettings.new_instance().in_streaming_mode().build())
+        sources = self.sinksourcemanager.get_sources(self.pipeline_config)
+        sinks_pipeline = self.sinksourcemanager.get_sinks(self.pipeline_config)
+        self.transform_factory.map_transformations(ContainerWiring())
+        pipeline_env.enable_checkpointing(10000)
 
-        # Embedded configurations
-        self.pipeline_config.config_internal = {
+        streams = []
+        mapper = {}
+
+        def map_sinks_to_sources(source_name):
+            sinks = {}
+            for sink_name, sink_cfg in self.pipeline_config.config_internal["Sinks"].items():
+                if sink_cfg.get("source") == source_name:
+                    sinks[sink_cfg["datatype"]] = {"sink_obj": sinks_pipeline[sink_name], "config": sink_cfg}
+            return sinks
+
+        for name, source_obj in sources.items():
+            streams.append(pipeline_env.from_source(source_obj, WatermarkStrategy.no_watermarks(), name))
+            mapper[name] = map_sinks_to_sources(name)
+
+        if not streams:
+            raise ValueError("No streams to union")
+        stream = streams[0]
+        for s in streams[1:]:
+            stream = stream.union(s)
+
+        stream_transform = self.chain("nan_str_replacement", stream)\
+            .chain("parse_kafka_message").finish_chain()
+
+        stream_main = self.chain("filter_stream_main", stream_transform).finish_chain()
+        stream_error = self.chain("filter_stream_error", stream_transform)\
+            .chain("error_flink_datarow", config=self.pipeline_config.config_internal).finish_chain()
+        
+        stream_error.add_sink(sinks_pipeline["JDBCSinkError"])
+        stream_main = stream_main.map(lambda x: x[0])
+
+        for source_name, sinks_stream in mapper.items():
+            stream_individual = stream_main.filter(lambda x: x.get("process", {}).get("id") == source_name)
+            stream_processed = self.chain("param_extract_compose", stream_individual, config=self.pipeline_config.config_pipeline).finish_chain()
+            scalar_stream = self.chain("scalar_stream_filter", stream_processed).finish_chain()
+            series_stream = self.chain("series_stream_filter", stream_processed).finish_chain()
+
+            if not sinks_stream:
+                print(f"No sinks for source: {source_name}")
+                continue
+
+            try:
+                scalar_config = sinks_stream['scalar']['config']
+                series_config = sinks_stream['series']['config']
+                scalar_stream = self.chain("main_flink_datarow", scalar_stream, config=scalar_config).finish_chain()
+                series_stream = self.chain("main_flink_datarow", series_stream, config=series_config).finish_chain()
+                scalar_stream.add_sink(sinks_stream['scalar']['sink_obj'])
+                series_stream.add_sink(sinks_stream['series']['sink_obj'])
+            except Exception as e:
+                print(f"Failed to attach sinks for {source_name}: {e}")
+
+        pipeline_env.execute("Local Flink Forwarder Job")
+
+class ContainerWiring:
+    def __init__(self):
+        self.filter_stream_main = FilterStreamMain
+        self.filter_stream_error = FilterStreamError
+        self.error_flink_datarow = MapErrorDataToFlinkRow
+        self.main_flink_datarow = MapDataToFlinkRow
+        self.parse_kafka_message = ParseKafkaMessage
+        self.nan_string_replace = NanStringReplacementImpl
+        self.param_extract_compose = ParamExtractAndCompose
+        self.scalar_stream_filter = ScalarMetricStreamFiltering
+        self.series_stream_filter = SeriesMetricStreamFiltering
+
+class PipelineConfigImpl(PipelineConfigFactory):
+    def __init__(self):
+        self._config_internal = {
             "Sources": {
-                "Forward": {
+                "00002_vku_sinter": {
                     "type": "kafka",
-                    "topic_name": "flink-source",
+                    "topic_name": "00002-vku-sinter_inbound-batchMeasurement",
                     "data_format": "text",
                     "latest_offset": True,
                     "source_implementation": "FlinkSourceKafkaImplV2",
                     "bootstrap_servers": "172.17.0.1:9092",
                     "config": {
-                        "group.id": "forward-only",
+                        "group.id": "00002-vku-sinter-forward-only",
                         "bootstrap.servers": "172.17.0.1:9092"
                     }
                 }
@@ -409,7 +466,7 @@ class CustomPipeline(PipelineBuilderFactory):
                     "type": "jdbc",
                     "datatype": "error",
                     "sink_implementation": "FlinkSinkImplPostgres",
-                    "source": "Forward",
+                    "source": "00002_vku_sinter",
                     "config": {
                         "types_str": "5-text,1-timestamptz",
                         "sql_statement": "INSERT INTO sm_base.error_log(raw_data, current_data, usecase, transformation_id, error, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
@@ -423,8 +480,8 @@ class CustomPipeline(PipelineBuilderFactory):
                         "retries": 5
                     }
                 },
-                "JDBCForwardScalarSink": {
-                    "source": "Forward",
+                "JDBC02ScalarSink": {
+                    "source": "00002_vku_sinter",
                     "type": "jdbc",
                     "datatype": "scalar",
                     "sink_implementation": "FlinkSinkImplPostgres",
@@ -441,8 +498,8 @@ class CustomPipeline(PipelineBuilderFactory):
                         "retries": 5
                     }
                 },
-                "JDBCForwardSeriesSink": {
-                    "source": "Forward",
+                "JDBC02SeriesSink": {
+                    "source": "00002_vku_sinter",
                     "type": "jdbc",
                     "datatype": "series",
                     "sink_implementation": "FlinkSinkImplPostgres",
@@ -461,7 +518,7 @@ class CustomPipeline(PipelineBuilderFactory):
                 }
             }
         }
-        self.pipeline_config.config_pipeline = {
+        self._config_pipeline = {
             "Pipeline": {
                 "Max_Parallelism": 5
             },
@@ -498,84 +555,27 @@ class CustomPipeline(PipelineBuilderFactory):
             }
         }
 
-        sources = self.sinksourcemanager.get_sources(config=self.pipeline_config)
-        sinks_pipeline = self.sinksourcemanager.get_sinks(config=self.pipeline_config)
+    @property
+    def config_internal(self):
+        return self._config_internal
 
-        container = ContainerWiring()
-        self.transform_factory.map_transformations(container)
+    @property
+    def config_pipeline(self):
+        return self._config_pipeline
 
-        pipeline_env.enable_checkpointing(10000)
-
-        streams = []
-        mapper = {}
-
-        def map_sinks_to_sources(source_name):
-            sinks = {}
-            for sink_name, sink_cfg in self.pipeline_config.config_internal["Sinks"].items():
-                if sink_cfg.get("source") == source_name:
-                    sinks[sink_cfg["datatype"]] = {"sink_obj": sinks_pipeline[sink_name], "config": sink_cfg}
-            return sinks
-
-        for name, source_obj in sources.items():
-            streams.append(pipeline_env.from_source(source_obj, WatermarkStrategy.no_watermarks(), name))
-            mapper[name] = map_sinks_to_sources(name)
-
-        print(mapper)
-
-        if not streams:
-            raise ValueError("No streams to union")
-        stream = streams[0]
-
-        for s in streams[1:]:
-            stream = stream.union(s)
-
-        stream_transform = self.chain("nan_str_replacement", stream).\
-                           chain("parse_kafka_message", config=self.pipeline_config.config_pipeline).finish_chain()
-
-        stream_main = self.chain("filter_stream_main", stream_transform).finish_chain()
-        stream_error = self.chain("filter_stream_error", stream_transform).\
-                       chain("error_flink_datarow", config=self.pipeline_config.config_internal).finish_chain()
-
-        stream_error.add_sink(sinks_pipeline["JDBCSinkError"])
-        stream_main = stream_main.map(lambda x: x[0])
-
-        for stream_process_id, sinks_stream in mapper.items():
-            stream_individual = stream_main.filter(lambda x: x["process"]["id"] == stream_process_id)
-
-            stream_processed = self.chain("param_extract_compose", stream_individual, config=self.pipeline_config.config_pipeline).finish_chain()
-
-            scalar_stream = self.chain("scalar_stream_filter", stream_processed).finish_chain()
-            series_stream = self.chain("series_stream_filter", stream_processed).finish_chain()
-
-            if len(sinks_stream) == 0:
-                print("No sinks configured for source: ", stream_process_id)
-                continue
-
-            try:
-                scalar_sink_config = sinks_stream['scalar']['config']
-                series_sink_config = sinks_stream['series']['config']
-
-                scalar_stream = self.chain("main_flink_datarow", scalar_stream, config=scalar_sink_config).finish_chain()
-                series_stream = self.chain("main_flink_datarow", series_stream, config=series_sink_config).finish_chain()
-
-                stream_sink_map = {
-                    "scalar": scalar_stream,
-                    "series": series_stream,
-                }
-
-                for sink_datatype, stream in stream_sink_map.items():
-                    stream.add_sink(sinks_stream[sink_datatype]['sink_obj'])
-            except Exception as e:
-                print("Failed to attach sinks to source: ", stream_process_id, "error: ", e, "\n Recheck sinks mapping!")
-
-        pipeline_env.execute("Application Mode Pipeline")
-
-def main():
-    pipeline_config = PipelineConfigImpl()
-    sinksourcemanager = SourceSinkManager(pipeline_config)
-    transformations = TransformationWiringImplV1()
-    pipeline = CustomPipeline(pipeline_config, sinksourcemanager, transformations)
-    pipeline.build_pipeline()
+    def create_default_pipeline_env(self) -> StreamExecutionEnvironment:
+        env = StreamExecutionEnvironment.get_execution_environment()
+        env.set_max_parallelism(5)
+        env.add_jars(
+            "file:///opt/flink/lib/flink-sql-connector-kafka-3.2.0-1.18.jar",
+            "file:///opt/flink/lib/flink-connector-jdbc-3.1.1-1.17.jar",
+            "file:///opt/flink/lib/postgresql-42.7.0.jar"
+        )
+        return env
 
 if __name__ == "__main__":
-    main()
+    transformations = FlinkTransformationWiring()
+    pipeline_config = PipelineConfigImpl()
+    sinksourcemanager = SourceSinkManager(pipeline_config)
+    pipeline = Pipeline(pipeline_config, sinksourcemanager, transformations)
+    pipeline.build_pipeline()
