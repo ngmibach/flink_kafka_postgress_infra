@@ -223,7 +223,7 @@ To inspect Kafka topics and data:
    ```
 2. View data from the `flink-source` topic:
    ```bash
-   docker exec -it kafka /usr/bin/kafka-console-consumer --bootstrap-server localhost:9092 --topic 00002-vku-sinter_inbound-batchMeasurement__consumer_offsets --from-beginning true
+   docker exec -it kafka /usr/bin/kafka-console-consumer --bootstrap-server localhost:9092 --topic 00002-vku-sinter_inbound-batchMeasurement --from-beginning true
    ```
 
 ## 4. Setting Up the Data Feeder

@@ -16,16 +16,16 @@ def generate_force_series(length):
     forces = []
     initial_force = random.uniform(570, 580)
     for i in range(length):
-        if i < 20:
+        if i < 60:
             force = initial_force + i * random.uniform(0.5, 1.5)
-        elif i < 40:
+        elif i < 120:
             force = initial_force + 20 + random.uniform(-2, 2)
-        elif i < 60:
+        elif i < 180:
             force = initial_force + 20 - (i - 20) * random.uniform(0.5, 1)
-        elif i < 80:
+        elif i < 240:
             force = initial_force - 10 + random.uniform(-0.5, 0.5)
         else: 
-            force = 0.0
+            force = initial_force + 10 + random.uniform(-0.5, 0.5)
         forces.append(round(force, 5))
     return forces
 
@@ -33,16 +33,16 @@ def generate_distance_series(length):
     distances = []
     initial_distance = random.uniform(-100, -80)
     for i in range(length):
-        if i < 20:
+        if i < 60:
             distance = initial_distance - i * random.uniform(100, 200)
-        elif i < 40:
+        elif i < 120:
             distance = distances[-1] - random.uniform(50, 100) if distances else initial_distance
-        elif i < 60:
+        elif i < 180:
             distance = distances[-1] + random.uniform(50, 100) if distances else initial_distance
-        elif i < 80:
+        elif i < 240:
             distance = distances[-1] + random.uniform(-10, 10) if distances else initial_distance
         else:
-            distance = 0.0
+            distance = distances[-1] - random.uniform(-10, 10) if distances else initial_distance
         distances.append(round(distance))
     return distances
 
@@ -54,7 +54,6 @@ def generate_info_ascii_series(length):
     return info
 
 def generate_sensor_data() -> dict[str, Any]:
-    """Generates random sensor data matching the provided format with time series and metadata."""
     current_time = datetime.now(timezone(timedelta(hours=2))).isoformat()
     series_length = 300
     time_series = generate_time_series(0.099, series_length)
