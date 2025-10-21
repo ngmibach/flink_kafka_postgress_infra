@@ -66,8 +66,7 @@ spec:
             claimName: savepoint-volume-claim
   restartNonce: {{ .Values.restartValue }}
   job:
-    jarURI: "local:///opt/flink/app/jobs/flink_job.py"
-    entryClass: "org.apache.flink.client.python.PythonDriver"
-    args: ["-py", "/opt/flink/app/jobs/flink_job.py"]
-    parallelism: 1
-    # mode: standalone
+    # jarURI: "local:///opt/flink/app/jobs/flink_job.py"
+    # entryClass: "org.apache.flink.client.python.PythonDriver"
+    # args: ["-py", "/opt/flink/app/jobs/flink_job.py"]
+    # parallelism: 1

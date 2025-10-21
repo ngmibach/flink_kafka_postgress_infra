@@ -172,7 +172,7 @@ The Flink Kubernetes Operator requires images from the Bosch Artifactory. Follow
    SELECT create_hypertable('sm_00002_vku_sinter.series_measurements', by_range('recorded_at', INTERVAL '1 day'));
    ```
 
-4. Verify the `error_log`, `series_measurements` and `scalar_measurements` table:
+4. To view the contents or verify the creation of the `error_log`, `series_measurements` and `scalar_measurements` table:
    1. `error_log` table:
    ```sql
    SELECT * FROM sm_base.error_log;
@@ -205,8 +205,6 @@ The Flink Kubernetes Operator requires images from the Bosch Artifactory. Follow
    -----------+----------+-------------+-------------+-----------+-------------+--------------+------------+-------------+----------------+-------------+------+--------------+---------------------+------------------+--------------------------+------------+-----------
    (0 rows)
    ```
-## Notes
-- You can also use these command to view the content stored in the PostgresDB.
 
 5. To view selected data at desired time in PostgresDB:
    ```sql
@@ -240,6 +238,46 @@ The data feeder is a Kubernetes pod that generates sample data for Kafka. It is 
 3. Commit the changes to the Git repository. ArgoCD will automatically detect the change and deploy the pod.
 4. **Caution**: Monitor the pod as it may generate large amounts of data, potentially filling up your disk. Only activate it briefly for testing purposes.
 
+## 5. Setting Up the Flink Job
+Follow these steps to configure and start the Flink job:
+1. Verify Required Directories
+
+Ensure the following directories exist in your file system to support persistent volumes and Flink pod functionality:
+- /home/dev/checkpoints/
+- /home/dev/savepoints/
+- /mnt/local-data
+
+Create them if they do not exist:
+```bash
+mkdir -p /home/dev/checkpoints /home/dev/savepoints /mnt/local-data
+```
+
+2. Enable Flink Job 
+
+Edit the reactive_mode.yaml file located at:
+```
+flink_postgres_kafka_infra/argocd_central/k8s/Flink_Infrastructure-application-mode-dev-manifest/templates/reactive_mode.yaml
+```
+
+Uncomment the following lines:
+```yaml
+jarURI: "local:///opt/flink/app/jobs/flink_job.py"
+entryClass: "org.apache.flink.client.python.PythonDriver"
+args: ["-py", "/opt/flink/app/jobs/flink_job.py"]
+parallelism: 1
+```
+
+3. Commit and Push Change
+
+4. Sync in ArgoCD
+- Access the ArgoCD UI.
+- Click the Sync button to apply the changes and start the job.
+
+5. **Notes**
+- You may need to delete the reactive-dev flink deployment pod before applying job changes
+- Ensure that data feeder pod is active, since the Flink Job is configured to only consume latest data by default.
+
+
 ## Notes
-- Ensure all services (ArgoCD, k9s, local registry, Kafka, PostgresDB) are stopped before starting the setup to avoid port conflicts.
+- Ensure all your local services (ArgoCD, k9s, local registry, Kafka, PostgresDB) are stopped before starting the setup to avoid port conflicts.
 - The data feeder pod should be used sparingly to avoid overloading your system.
